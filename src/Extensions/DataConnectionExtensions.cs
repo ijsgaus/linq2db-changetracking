@@ -21,12 +21,12 @@ namespace Linq2Db.SqlServer.ChangeTracking
 
         static DataConnectionExtensions()
         {
-            _ctSyncMethod = typeof(DataConnectionExtensions).GetMethod(nameof(GetChangesEnumerable), 
+            _ctSyncMethod = typeof(DataConnectionExtensions).GetMethod(nameof(GetChangesEnumerable),
                 BindingFlags.NonPublic | BindingFlags.Static);
-            _ctAsyncMethod = typeof(DataConnectionExtensions).GetMethod(nameof(GetChangesEnumerableAsync), 
+            _ctAsyncMethod = typeof(DataConnectionExtensions).GetMethod(nameof(GetChangesEnumerableAsync),
                 BindingFlags.NonPublic | BindingFlags.Static);
         }
-        
+
         [PublicAPI]
         public static bool IsSqlServer(this DataConnection ctx)
         {
@@ -37,7 +37,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
                 case ProviderName.SqlServer2008:
                 case ProviderName.SqlServer2012:
                 case ProviderName.SqlServer2014:
-                   
+
                     return true;
                 default:
                     return false;
@@ -59,7 +59,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
             }
         }
 
-        
+
         private static void CheckCtCompatible(this DataConnection ctx)
         {
             if(!ctx.IsSqlServer())
@@ -67,7 +67,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
             if(!ctx.IsCtCompatible())
                 throw new ArgumentException("SqlServer version is not compatible with change tracking");
         }
-        
+
         [PublicAPI]
         public static string GetDatabaseName(this DataConnection ctx)
         {
@@ -91,7 +91,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
 
         [PublicAPI]
         public static void EnableChangeTracking(this DataConnection ctx, uint retentionPeriod, RetentionMeasure measure,
-            bool autoCleanup = true) 
+            bool autoCleanup = true)
             => ctx.Execute(Sql.DbEnableChangeTracking(ctx.GetDatabaseName(), retentionPeriod, measure, autoCleanup));
 
         [PublicAPI]
@@ -104,7 +104,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
         [PublicAPI]
         public static void DisableChangeTracking(this DataConnection ctx)
             => ctx.Execute(Sql.DbDisableChangeTracking(ctx.GetDatabaseName()));
-        
+
         [PublicAPI]
         public static Task DisableChangeTrackingAsync(this DataConnection ctx, CancellationToken token = default)
             => ctx.ExecuteAsync(Sql.DbDisableChangeTracking(ctx.GetDatabaseName()), token);
@@ -139,7 +139,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
             var descriptor = ctx.MappingSchema.GetEntityDescriptor(typeof(T));
             ctx.Execute(Sql.TableDisableChangeTracking(descriptor.SchemaName, descriptor.TableName));
         }
-        
+
         [PublicAPI]
         public static Task DisableChangeTrackingAsync<T>(this DataConnection ctx, CancellationToken token = default)
         {
@@ -148,7 +148,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
             return ctx.ExecuteAsync(Sql.TableDisableChangeTracking(descriptor.SchemaName, descriptor.TableName), token);
         }
 
-        public static IEnumerable<Changed<T>> GetChanges<T>(this DataConnection ctx, long version) 
+        public static IEnumerable<Changed<T>> GetChanges<T>(this DataConnection ctx, long version)
             where T : new()
         {
             ctx.CheckCtCompatible();
@@ -160,9 +160,9 @@ namespace Linq2Db.SqlServer.ChangeTracking
             return query;
 
         }
-        
-        public static Task<IEnumerable<Changed<T>>> GetChangesAsync<T>(this DataConnection ctx, long version, 
-            CancellationToken token = default) 
+
+        public static Task<IEnumerable<Changed<T>>> GetChangesAsync<T>(this DataConnection ctx, long version,
+            CancellationToken token = default)
             where T : new()
         {
             ctx.CheckCtCompatible();
@@ -174,57 +174,55 @@ namespace Linq2Db.SqlServer.ChangeTracking
             return query;
 
         }
-        
+
         private static async Task<IEnumerable<Changed<T>>> GetChangesEnumerableAsync<T, TCt>(DataConnection ctx,
-            Expression<Func<TCt, T, bool>> joiner, Func<TCt, T> mapping, long version, CancellationToken token) 
-            where T : class, new() 
+            Expression<Func<TCt, T, bool>> joiner, Func<TCt, T> mapping, long version, CancellationToken token)
+            where T : class, new()
             where TCt : CtBase
         {
             var lst = await GetChangesQuery(ctx, joiner, mapping, version)
                 .ToListAsync(token);
-                
-            return lst.Select(p => new Changed<T>(p.ChangeType, p.Version,
-                    p.ChangeType == ChangeType.Delete ? mapping(p.Ct) : p.Entity));
+
+            return lst.Select(p => new Changed<T>(p.Ct.SYS_CHANGE_OPERATION, p.Ct.SYS_CHANGE_VERSION,
+                    p.Ct.SYS_CHANGE_OPERATION == ChangeType.Delete ? mapping(p.Ct) : p.Entity));
         }
 
         private static IEnumerable<Changed<T>> GetChangesEnumerable<T, TCt>(DataConnection ctx,
-            Expression<Func<TCt, T, bool>> joiner, Func<TCt, T> mapping, long version) 
-            where T : class, new() 
+            Expression<Func<TCt, T, bool>> joiner, Func<TCt, T> mapping, long version)
+            where T : class, new()
             where TCt : CtBase
         {
             return GetChangesQuery(ctx, joiner, mapping, version)
                 .ToList()
-                .Select(p => new Changed<T>(p.ChangeType, p.Version,
-                    p.ChangeType == ChangeType.Delete ? mapping(p.Ct) : p.Entity));
+                .Select(p => new Changed<T>(p.Ct.SYS_CHANGE_OPERATION, p.Ct.SYS_CHANGE_VERSION,
+                    p.Ct.SYS_CHANGE_OPERATION == ChangeType.Delete ? mapping(p.Ct) : p.Entity));
         }
 
-        private static IQueryable<Changed<T, TCt>> GetChangesQuery<T, TCt>(DataConnection ctx, 
+        private static IQueryable<Changed<T, TCt>> GetChangesQuery<T, TCt>(DataConnection ctx,
             Expression<Func<TCt,T , bool>> joiner, Func<TCt, T> mapping, long version)
             where TCt : CtBase
             where T : class, new()
         {
             var descriptor = ctx.MappingSchema.GetEntityDescriptor(typeof(T));
             var pkString = string.Join(", ", descriptor.Columns.Where(p => p.IsPrimaryKey).Select(p => p.ColumnName));
-            var schema = string.IsNullOrWhiteSpace(descriptor.SchemaName) ? "dbo" : descriptor.SchemaName; 
+            var schema = string.IsNullOrWhiteSpace(descriptor.SchemaName) ? "dbo" : descriptor.SchemaName;
             var sql = $@"SELECT *  FROM CHANGETABLE(CHANGES [{schema}].[{descriptor.TableName}], @p0) ct";
             var queryChanges = ctx.FromSql<TCt>(sql, new DataParameter("p", version));
             var query = queryChanges
-                .LeftJoin(ctx.GetTable<T>(), joiner, (c, e) => new {Change = c, Entity = e})
-                .Select(p =>
-                    new Changed<T, TCt>(p.Change.SYS_CHANGE_OPERATION, p.Change.SYS_CHANGE_VERSION, p.Change,
-                        p.Entity));
+                .LeftJoin(ctx.GetTable<T>(), joiner, (c, e) => new Changed<T, TCt> {Ct = c, Entity = e});
+
             return query;
         }
 
         [PublicAPI]
         public static long GetChangeTrackingVersion(this DataConnection ctx)
             => ctx.Execute<long>(Sql.ChangeTrackingVersion);
-        
+
         [PublicAPI]
         public static Task<long> GetChangeTrackingVersionAsync(this DataConnection ctx, CancellationToken token = default)
             => ctx.ExecuteAsync<long>(Sql.ChangeTrackingVersion, token);
 
     }
-    
-    
+
+
 }

@@ -15,34 +15,11 @@ namespace Linq2Db.SqlServer.ChangeTracking
     public static class CodeGeneration
     {
         private static readonly SemaphoreSlim _locker = new SemaphoreSlim(1, 1);
-            private static ConcurrentDictionary<Type, (Type, Expression, object)> _ctTypes = new ConcurrentDictionary<Type, (Type, Expression, object)>();
 
-        /*public static LambdaExpression CitateParameter(LambdaExpression expression, string paramName,
-            ParameterExpression toParam)
-        {
-            var paramToChange = expression.Parameters.First(p => p.Name == paramName);
-            var changed =  new CitateParameterVisitor(paramToChange,toParam).Visit(expression.Body);
-            
-        }
+        private static readonly ConcurrentDictionary<Type, (Type, Expression, Delegate)> _ctTypes =
+            new ConcurrentDictionary<Type, (Type, Expression, Delegate)>();
 
-        private class CitateParameterVisitor : ExpressionVisitor
-        {
-            private readonly ParameterExpression _old;
-            private readonly Expression _newEx;
-
-            public CitateParameterVisitor(ParameterExpression old, Expression newEx)
-            {
-                _old = old;
-                _newEx = newEx;
-            }
-
-            public override Expression Visit(Expression node)
-            {
-                return node == _old ? _newEx : base.Visit(node);
-            }
-        }*/
-        
-        public static (Type, Expression, object) GetCtTypeForEntity(this EntityDescriptor descriptor)
+        public static (Type CtType, Expression Joiner, Delegate Mapper) GetCtTypeForEntity(this EntityDescriptor descriptor)
         {
             if (_ctTypes.TryGetValue(descriptor.ObjectType, out var ctType))
                 return ctType;
@@ -51,9 +28,10 @@ namespace Linq2Db.SqlServer.ChangeTracking
             {
                 if (_ctTypes.TryGetValue(descriptor.ObjectType, out ctType))
                     return ctType;
-                var typeOnly = DoGenerateCtTypeForEntity(descriptor);
-                var (ex, map) = DoGenerateCtJoinExpressionCt(descriptor, descriptor.ObjectType, typeOnly);
-                ctType = (typeOnly, ex, map);
+                var typeOnly = GenerateCtTypeForEntity(descriptor);
+                var ex = GenerateCtJoinExpression(descriptor, descriptor.ObjectType, typeOnly);
+                var mapper = GenerateCtToEntityMapper(descriptor, descriptor.ObjectType, typeOnly);
+                ctType = (typeOnly, ex, mapper);
                 _ctTypes.TryAdd(descriptor.ObjectType, ctType);
                 return ctType;
 
@@ -63,10 +41,24 @@ namespace Linq2Db.SqlServer.ChangeTracking
                 _locker.Release();
             }
 
-            
         }
 
-        private static (Expression, object) DoGenerateCtJoinExpressionCt(this EntityDescriptor descriptor,
+
+        private static Delegate GenerateCtToEntityMapper(this EntityDescriptor descriptor,
+            Type entityType, Type ctType)
+        {
+            var ctParam = Expression.Parameter(ctType, "ct");
+            var createEntity = Expression.New(entityType.GetConstructor(new Type[] { }));
+            var makeEntity = Expression.MemberInit(createEntity,
+                descriptor.Columns.Where(p => p.IsPrimaryKey).Select(p =>
+                    Expression.Bind(entityType.GetProperty(p.MemberName), Expression.MakeMemberAccess(ctParam,
+                        ctType.GetProperty(p.MemberName)))));
+            var map = Expression.Lambda(makeEntity, ctParam).Compile();
+            return map;
+        }
+
+
+        private static Expression GenerateCtJoinExpression(this EntityDescriptor descriptor,
             Type entityType, Type ctType)
         {
             var ctParam = Expression.Parameter(ctType, "ct");
@@ -84,17 +76,12 @@ namespace Linq2Db.SqlServer.ChangeTracking
                     current = Expression.AndAlso(current, cmp);
             }
 
-            var createEntity = Expression.New(entityType.GetConstructor(new Type[] { }));
-            var makeEntity = Expression.MemberInit(createEntity,
-                descriptor.Columns.Where(p => p.IsPrimaryKey).Select(p =>
-                    Expression.Bind(entityType.GetProperty(p.MemberName), Expression.MakeMemberAccess(ctParam,
-                        ctType.GetProperty(p.MemberName)))));
-            var map = Expression.Lambda(makeEntity, ctParam).Compile();
-            
-            return (Expression.Lambda(current, ctParam, eParam), map);
+
+
+            return Expression.Lambda(current, ctParam, eParam);
         }
 
-        private static Type DoGenerateCtTypeForEntity(this EntityDescriptor descriptor)
+        private static Type GenerateCtTypeForEntity(this EntityDescriptor descriptor)
         {
             var assemblyName = new AssemblyName($"linq2db.sqlserver.ct.{descriptor.TypeAccessor.Type.FullName}");
             var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
@@ -146,7 +133,7 @@ namespace Linq2Db.SqlServer.ChangeTracking
 
             var columnAttrInfo = typeof(ColumnAttribute).GetConstructor(new[] { typeof(string) });
             var columnAttrBuilder = new CustomAttributeBuilder(columnAttrInfo, new object[] { fieldName });
-            
+
             var propertyBuilder = tb.DefineProperty(propertyName, PropertyAttributes.HasDefault, propertyType, null);
             propertyBuilder.SetCustomAttribute(columnAttrBuilder);
             propertyBuilder.SetGetMethod(getPropBuilder);
