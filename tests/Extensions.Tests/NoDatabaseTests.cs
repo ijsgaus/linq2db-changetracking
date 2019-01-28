@@ -21,19 +21,6 @@ namespace Extensions.Tests
                 Assert.False(conn.IsSqlServer());
             }
         }
-
-        [Fact]
-        public void ShouldCreateCtType()
-        {
-            using (var conn = new DataConnection(ProviderName.SqlServer, ""))
-            {
-                var (type, _, _) = conn.MappingSchema.GetEntityDescriptor(typeof(CtTest)).GetCtTypeForEntity();
-                Assert.NotNull(type.GetProperty("Id"));
-                var (t1 , _, _)= conn.MappingSchema.GetEntityDescriptor(typeof(CtTest)).GetCtTypeForEntity();
-                Assert.Equal(type, t1);
-            }
-        }
-        
         
     }
 }

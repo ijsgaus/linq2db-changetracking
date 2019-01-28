@@ -1,18 +1,16 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Data;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Threading;
-using LinqToDB.Linq;
 using LinqToDB.Mapping;
 
-namespace Linq2Db.SqlServer.ChangeTracking
+namespace Linq2Db.SqlServer
 {
-    public static class CodeGeneration
+    internal static class CodeGeneration
     {
         private static readonly SemaphoreSlim _locker = new SemaphoreSlim(1, 1);
 
@@ -29,8 +27,8 @@ namespace Linq2Db.SqlServer.ChangeTracking
                 if (_ctTypes.TryGetValue(descriptor.ObjectType, out ctType))
                     return ctType;
                 var typeOnly = GenerateCtTypeForEntity(descriptor);
-                var ex = GenerateCtJoinExpression(descriptor, descriptor.ObjectType, typeOnly);
-                var mapper = GenerateCtToEntityMapper(descriptor, descriptor.ObjectType, typeOnly);
+                var ex = GenerateCtJoinExpression(descriptor,  typeOnly);
+                var mapper = GenerateCtToEntityMapper(descriptor, typeOnly);
                 ctType = (typeOnly, ex, mapper);
                 _ctTypes.TryAdd(descriptor.ObjectType, ctType);
                 return ctType;
@@ -44,13 +42,18 @@ namespace Linq2Db.SqlServer.ChangeTracking
         }
 
 
-        private static Delegate GenerateCtToEntityMapper(this EntityDescriptor descriptor,
-            Type entityType, Type ctType)
+        [SuppressMessage("ReSharper", "AssignNullToNotNullAttribute")]
+        private static Delegate GenerateCtToEntityMapper(this EntityDescriptor descriptor, Type ctType)
         {
+            var entityType = descriptor.ObjectType ?? throw new ArgumentException("descriptor.ObjectType == null");
+
             var ctParam = Expression.Parameter(ctType, "ct");
-            var createEntity = Expression.New(entityType.GetConstructor(new Type[] { }));
+            var createEntity = Expression.New(
+                entityType.GetConstructor(new Type[] { }) ??
+                           throw new NotSupportedException("No default constructor on entity"));
             var makeEntity = Expression.MemberInit(createEntity,
                 descriptor.Columns.Where(p => p.IsPrimaryKey).Select(p =>
+
                     Expression.Bind(entityType.GetProperty(p.MemberName), Expression.MakeMemberAccess(ctParam,
                         ctType.GetProperty(p.MemberName)))));
             var map = Expression.Lambda(makeEntity, ctParam).Compile();
@@ -58,18 +61,19 @@ namespace Linq2Db.SqlServer.ChangeTracking
         }
 
 
-        private static Expression GenerateCtJoinExpression(this EntityDescriptor descriptor,
-            Type entityType, Type ctType)
+        [SuppressMessage("ReSharper", "AssignNullToNotNullAttribute")]
+        private static Expression GenerateCtJoinExpression(this EntityDescriptor descriptor, Type ctType)
         {
+            var entityType = descriptor.ObjectType ?? throw new ArgumentException("descriptor.ObjectType == null");
             var ctParam = Expression.Parameter(ctType, "ct");
             var eParam = Expression.Parameter(entityType, "e");
             Expression current = null;
             foreach (var pk in descriptor.Columns.Where(p => p.IsPrimaryKey))
             {
-                var emember = entityType.GetProperty(pk.MemberName);
-                var ctmember = ctType.GetProperty(pk.MemberName);
-                var cmp = Expression.Equal(Expression.MakeMemberAccess(ctParam, ctmember),
-                    Expression.MakeMemberAccess(eParam, emember));
+                var entityProperty = entityType.GetProperty(pk.MemberName);
+                var ctProperty = ctType.GetProperty(pk.MemberName);
+                var cmp = Expression.Equal(Expression.MakeMemberAccess(ctParam, ctProperty),
+                    Expression.MakeMemberAccess(eParam, entityProperty));
                 if (current == null)
                     current = cmp;
                 else

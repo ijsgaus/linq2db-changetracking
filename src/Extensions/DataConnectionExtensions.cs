@@ -14,6 +14,9 @@ using LinqToDB.SqlQuery;
 
 namespace Linq2Db.SqlServer.ChangeTracking
 {
+    /// <summary>
+    /// Data connection extensions
+    /// </summary>
     public static class DataConnectionExtensions
     {
         private static readonly MethodInfo _ctSyncMethod;
@@ -27,6 +30,11 @@ namespace Linq2Db.SqlServer.ChangeTracking
                 BindingFlags.NonPublic | BindingFlags.Static);
         }
 
+        /// <summary>
+        /// Is connection to sql server
+        /// </summary>
+        /// <param name="ctx">data connection</param>
+        /// <returns>true if sql server, false in other cases</returns>
         [PublicAPI]
         public static bool IsSqlServer(this DataConnection ctx)
         {
@@ -44,6 +52,11 @@ namespace Linq2Db.SqlServer.ChangeTracking
             }
         }
 
+        /// <summary>
+        /// Is connection compatible to sql server change tracking (check driver version)
+        /// </summary>
+        /// <param name="ctx">data connection</param>
+        /// <returns>true, when driver is compatible with sql server change tracking</returns>
         [PublicAPI]
         public static bool IsCtCompatible(this DataConnection ctx)
         {
@@ -68,6 +81,11 @@ namespace Linq2Db.SqlServer.ChangeTracking
                 throw new ArgumentException("SqlServer version is not compatible with change tracking");
         }
 
+        /// <summary>
+        /// get sql server database name from connection
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <returns>database name</returns>
         [PublicAPI]
         public static string GetDatabaseName(this DataConnection ctx)
         {
@@ -89,11 +107,27 @@ namespace Linq2Db.SqlServer.ChangeTracking
         }
 
 
+        /// <summary>
+        /// Enable change tracking for database
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="retentionPeriod">retention period</param>
+        /// <param name="measure">retention period measure item</param>
+        /// <param name="autoCleanup">enable auto cleanup</param>
         [PublicAPI]
         public static void EnableChangeTracking(this DataConnection ctx, uint retentionPeriod, RetentionMeasure measure,
             bool autoCleanup = true)
             => ctx.Execute(Sql.DbEnableChangeTracking(ctx.GetDatabaseName(), retentionPeriod, measure, autoCleanup));
 
+        /// <summary>
+        ///  Enable change tracking for database async
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="retentionPeriod">retention period</param>
+        /// <param name="measure">retention period measure item</param>
+        /// <param name="autoCleanup">enable auto cleanup</param>
+        /// <param name="token">cancellation</param>
+        /// <returns>awaitable</returns>
         [PublicAPI]
         public static Task EnableChangeTrackingAsync(this DataConnection ctx, uint retentionPeriod,
             RetentionMeasure measure,
@@ -101,14 +135,31 @@ namespace Linq2Db.SqlServer.ChangeTracking
             => ctx.ExecuteAsync(
                 Sql.DbEnableChangeTracking(ctx.GetDatabaseName(), retentionPeriod, measure, autoCleanup), token);
 
+        /// <summary>
+        /// Disable change tracking for database
+        /// </summary>
+        /// <param name="ctx">connection</param>
         [PublicAPI]
         public static void DisableChangeTracking(this DataConnection ctx)
             => ctx.Execute(Sql.DbDisableChangeTracking(ctx.GetDatabaseName()));
 
+        /// <summary>
+        /// Disable change tracking for database async
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="token">cancellation</param>
+        /// <returns>awaitable</returns>
         [PublicAPI]
         public static Task DisableChangeTrackingAsync(this DataConnection ctx, CancellationToken token = default)
             => ctx.ExecuteAsync(Sql.DbDisableChangeTracking(ctx.GetDatabaseName()), token);
 
+        /// <summary>
+        /// Enable change tracking fo table
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="trackColumnUpdate">track column update</param>
+        /// <typeparam name="T">entity type to track</typeparam>
+        /// <exception cref="ArgumentException">if entity use inheritance</exception>
         [PublicAPI]
         public static void EnableChangeTracking<T>(this DataConnection ctx, bool trackColumnUpdate = false)
         {
@@ -120,6 +171,14 @@ namespace Linq2Db.SqlServer.ChangeTracking
 
         }
 
+        /// <summary>
+        /// Enable change tracking fo table
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="trackColumnUpdate">track column update</param>
+        /// <param name="token">cancellation</param>
+        /// <typeparam name="T">entity type to track</typeparam>
+        /// <exception cref="ArgumentException">if entity use inheritance</exception>
         [PublicAPI]
         public static Task EnableChangeTrackingAsync<T>(this DataConnection ctx, bool trackColumnUpdate = false,
             CancellationToken token = default)
@@ -132,6 +191,11 @@ namespace Linq2Db.SqlServer.ChangeTracking
                 Sql.TableEnableChangeTracking(descriptor.SchemaName, descriptor.TableName, trackColumnUpdate), token);
         }
 
+        /// <summary>
+        /// Disable change tracking for table
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <typeparam name="T">entity type</typeparam>
         [PublicAPI]
         public static void DisableChangeTracking<T>(this DataConnection ctx)
         {
@@ -140,6 +204,12 @@ namespace Linq2Db.SqlServer.ChangeTracking
             ctx.Execute(Sql.TableDisableChangeTracking(descriptor.SchemaName, descriptor.TableName));
         }
 
+        /// <summary>
+        /// Disable change tracking for table
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="token">cancellation</param>
+        /// <typeparam name="T">entity type</typeparam>
         [PublicAPI]
         public static Task DisableChangeTrackingAsync<T>(this DataConnection ctx, CancellationToken token = default)
         {
@@ -148,8 +218,15 @@ namespace Linq2Db.SqlServer.ChangeTracking
             return ctx.ExecuteAsync(Sql.TableDisableChangeTracking(descriptor.SchemaName, descriptor.TableName), token);
         }
 
+        /// <summary>
+        /// read change tracking items for entity type
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="version">known last version</param>
+        /// <typeparam name="T">entity type</typeparam>
+        /// <returns>enumerable of changes</returns>
         public static IEnumerable<Changed<T>> GetChanges<T>(this DataConnection ctx, long version)
-            where T : new()
+            where T : class, new()
         {
             ctx.CheckCtCompatible();
             var descriptor = ctx.MappingSchema.GetEntityDescriptor(typeof(T));
@@ -161,9 +238,17 @@ namespace Linq2Db.SqlServer.ChangeTracking
 
         }
 
+        /// <summary>
+        /// read change tracking items for entity type
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <param name="version">known last version</param>
+        /// <param name="token">cancellation</param>
+        /// <typeparam name="T">entity type</typeparam>
+        /// <returns>enumerable of changes</returns>
         public static Task<IEnumerable<Changed<T>>> GetChangesAsync<T>(this DataConnection ctx, long version,
             CancellationToken token = default)
-            where T : new()
+            where T : class, new()
         {
             ctx.CheckCtCompatible();
             var descriptor = ctx.MappingSchema.GetEntityDescriptor(typeof(T));
@@ -214,10 +299,21 @@ namespace Linq2Db.SqlServer.ChangeTracking
             return query;
         }
 
+        /// <summary>
+        /// get current change tracking version
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <returns>current change tracking version</returns>
         [PublicAPI]
         public static long GetChangeTrackingVersion(this DataConnection ctx)
             => ctx.Execute<long>(Sql.ChangeTrackingVersion);
 
+
+        /// <summary>
+        /// get current change tracking version
+        /// </summary>
+        /// <param name="ctx">connection</param>
+        /// <returns>current change tracking version</returns>
         [PublicAPI]
         public static Task<long> GetChangeTrackingVersionAsync(this DataConnection ctx, CancellationToken token = default)
             => ctx.ExecuteAsync<long>(Sql.ChangeTrackingVersion, token);
