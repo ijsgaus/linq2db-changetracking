@@ -22,7 +22,7 @@ namespace Extensions.Tests
             builder.DataSource = "localhost";
             builder.InitialCatalog = "master";
             builder.UserID = "sa";
-            builder.Password = "rt11sjKbrfynhjg";
+            builder.Password = "rt11sjkbrfynhjg";
             _masterCs = builder.ToString();
             using (var masterCon = new DataConnection(ProviderName.SqlServer2014, _masterCs))
             {
@@ -39,15 +39,16 @@ namespace Extensions.Tests
 
         private TestDb CreateDb()
          => new TestDb(ProviderName.SqlServer2014, _dbCs);
-        
+
         [Fact]
         public void EnableDisableCt()
         {
             using (var db = CreateDb())
             {
-                db.EnableChangeTracking(10, RetentionMeasure.Minutes);
+                db.EnsureChangeTrackingEnabled(10, RetentionMeasure.Minutes);
+                db.EnsureChangeTrackingEnabled(10, RetentionMeasure.Minutes);
                 db.DisableChangeTracking();
-            }   
+            }
         }
 
         [Fact]
@@ -55,8 +56,9 @@ namespace Extensions.Tests
         {
             using (var db = CreateDb())
             {
-                db.EnableChangeTracking(10, RetentionMeasure.Minutes);
-                db.EnableChangeTracking<CtTest>();
+                db.EnsureChangeTrackingEnabled(10, RetentionMeasure.Minutes);
+                db.EnsureChangeTrackingEnabled<CtTest>();
+                db.EnsureChangeTrackingEnabled<CtTest>();
                 db.DisableChangeTracking<CtTest>();
                 db.DisableChangeTracking();
             }
@@ -67,17 +69,25 @@ namespace Extensions.Tests
         {
             using (var db = CreateDb())
             {
-                db.EnableChangeTracking(10, RetentionMeasure.Minutes);
-                db.EnableChangeTracking<CtTest>();
+                db.EnsureChangeTrackingEnabled(10, RetentionMeasure.Minutes);
+                db.EnsureChangeTrackingEnabled<CtTest>();
                 db.CtTests.Insert(() => new CtTest {Name = "123"});
-                var fst = db.GetChanges<CtTest>(0).FirstOrDefault();
+                var fst = db.GetChanges<CtTest>(0, false).FirstOrDefault();
                 Assert.NotNull(fst);
                 Assert.Equal(ChangeType.Insert, fst.ChangeType);
                 Assert.Equal("123", fst.Entity.Name);
                 Assert.Equal(1, fst.Entity.Id);
+
+                fst = db.GetChanges<CtTest>(0).FirstOrDefault();
+
+                Assert.NotNull(fst);
+                Assert.Equal(ChangeType.Insert, fst.ChangeType);
+                Assert.Null(fst.Entity.Name);
+                Assert.Equal(1, fst.Entity.Id);
+
                 var version = db.GetChangeTrackingVersion();
                 db.CtTests.Where(p => p.Id == 1).Delete();
-                var snd = db.GetChanges<CtTest>(version).FirstOrDefault();
+                var snd = db.GetChanges<CtTest>(version, false).FirstOrDefault();
                 Assert.NotNull(snd);
                 Assert.Equal(ChangeType.Delete, snd.ChangeType);
                 Assert.Equal(1, snd.Entity.Id);
@@ -85,23 +95,23 @@ namespace Extensions.Tests
                 db.DisableChangeTracking();
             }
         }
-        
+
         [Fact]
         public async Task ShouldGetCtChangesAsync()
         {
             using (var db = CreateDb())
             {
-                await db.EnableChangeTrackingAsync(10, RetentionMeasure.Minutes);
-                await db.EnableChangeTrackingAsync<CtTest>();
+                db.EnsureChangeTrackingEnabled(10, RetentionMeasure.Minutes);
+                db.EnsureChangeTrackingEnabled<CtTest>();
                 await db.CtTests.InsertAsync(() => new CtTest {Name = "123"});
-                var fst = (await db.GetChangesAsync<CtTest>(0)).FirstOrDefault();
+                var fst = (await db.GetChangesAsync<CtTest>(0, false)).FirstOrDefault();
                 Assert.NotNull(fst);
                 Assert.Equal(ChangeType.Insert, fst.ChangeType);
                 Assert.Equal("123", fst.Entity.Name);
                 Assert.Equal(1, fst.Entity.Id);
                 var version = await db.GetChangeTrackingVersionAsync();
                 await db.CtTests.Where(p => p.Id == 1).DeleteAsync();
-                var snd = (await db.GetChangesAsync<CtTest>(version)).FirstOrDefault();
+                var snd = (await db.GetChangesAsync<CtTest>(version, false)).FirstOrDefault();
                 Assert.NotNull(snd);
                 Assert.Equal(ChangeType.Delete, snd.ChangeType);
                 Assert.Equal(1, snd.Entity.Id);
